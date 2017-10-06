@@ -129,7 +129,7 @@ func (d *Client) onWatch(action int, id string, svc *consul.CatalogService) {
 
 func (c *Client) watchService(service string) {
 	for {
-		err := c.registry.Watch(service, "", c.onWatch)
+		err := c.registry.WatchCatalogService(service, "", c.onWatch)
 		if err != nil {
 			if eh := c.OnError; eh != nil {
 				eh("watch", err)
