@@ -10,27 +10,7 @@ import (
 
 	"github.com/shouyingo/consul"
 	"github.com/shouyingo/micro/microproto"
-	"github.com/vizee/timer"
 )
-
-type rpccontext struct {
-	state  int32 // 0: undone, 1: done
-	c      *Client
-	method string
-	id     uint64
-	fn     Callback
-}
-
-func (c *rpccontext) done() bool {
-	return atomic.CompareAndSwapInt32(&c.state, 0, 1)
-}
-
-func (c *rpccontext) OnTime() {
-	if c.done() {
-		c.c.removeCtx(c.id)
-		c.fn(c.method, CodeTimeout, nil)
-	}
-}
 
 type serviceEntry struct {
 	state int32 // 0: alive, 1: down
@@ -40,28 +20,15 @@ type serviceEntry struct {
 }
 
 type Client struct {
-	deps map[string]*conngroup // service => group
-
-	nreqid  uint64
-	ctxmu   sync.Mutex
-	ctxs    map[uint64]*rpccontext // reqid => request
-	timeout timer.Timer
+	deps   map[string]*conngroup // service => group
+	mgr    *contextManager
+	nreqid uint64
 
 	svcmu sync.RWMutex
 	svcs  map[string]*serviceEntry // service-id => entry
 
 	registry *consul.Client
 	OnError  ErrFunc
-}
-
-func (c *Client) removeCtx(reqid uint64) *rpccontext {
-	c.ctxmu.Lock()
-	ctx := c.ctxs[reqid]
-	if ctx != nil {
-		delete(c.ctxs, reqid)
-	}
-	c.ctxmu.Unlock()
-	return ctx
 }
 
 func (c *Client) handleServer(svc *serviceEntry) {
@@ -88,7 +55,7 @@ func (c *Client) handleServer(svc *serviceEntry) {
 				if !ok {
 					continue
 				}
-				ctx := c.removeCtx(resp.Id)
+				ctx := c.mgr.remove(resp.Id)
 				if ctx != nil && ctx.done() {
 					ctx.fn(ctx.method, int(resp.Code), resp.Result)
 				}
@@ -146,32 +113,25 @@ func (c *Client) Call(service string, method string, params []byte, fn Callback)
 	}
 
 	reqid := atomic.AddUint64(&c.nreqid, 1)
-	ctx := &rpccontext{
-		c:      c,
-		method: method,
-		id:     reqid,
-		fn:     fn,
-	}
-	c.ctxmu.Lock()
-	c.ctxs[reqid] = ctx
-	c.ctxmu.Unlock()
-
+	ctx := c.mgr.add(reqid, method, fn, rpcTimeout)
 	mc := g.randone()
 	if mc == nil {
-		c.removeCtx(reqid)
-		return fmt.Errorf("service(%s) no alive session", service)
+		if ctx.done() {
+			c.mgr.remove(reqid)
+			return fmt.Errorf("service(%s) no alive session", service)
+		}
+		return nil
 	}
 
-	c.timeout.Add(ctx, time.Now().Add(rpcTimeout).UnixNano())
 	ok := mc.send(&microproto.Request{
-		Method: service + "." + method,
+		Method: method,
 		Id:     reqid,
 		Params: params,
 	})
 	if ok || !ctx.done() {
 		return nil
 	}
-	c.removeCtx(reqid)
+	c.mgr.remove(reqid)
 	return fmt.Errorf("service(%s) send request failed", service)
 }
 
@@ -181,13 +141,17 @@ func NewClient(r *consul.Client, depends []string) *Client {
 		deps[dep] = &conngroup{}
 	}
 	c := &Client{
-		deps:     deps,
-		ctxs:     make(map[uint64]*rpccontext),
+		deps: deps,
+		mgr: &contextManager{
+			ctxs:  make(map[uint64]*rpccontext),
+			timer: time.NewTimer(infinite),
+		},
 		svcs:     make(map[string]*serviceEntry),
 		registry: r,
 	}
 	for svc := range c.deps {
 		go c.watchService(svc)
 	}
+	go c.mgr.cleanExpired()
 	return c
 }

@@ -3,8 +3,8 @@ package micro
 import "time"
 
 const (
-	connWriteCap = 1024
-	connReadCap  = 512
+	connWriteCap = 512
+	connReadCap  = 256
 
 	maxPacketSize = 64 * 1024
 
