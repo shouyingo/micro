@@ -3,6 +3,7 @@ package micro
 import (
 	"fmt"
 	"net"
+	"runtime"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -50,8 +51,7 @@ retry:
 	}
 }
 
-func (s *Service) handleClient(c net.Conn) {
-	client := goconn(c)
+func (s *Service) workproc(client *conn) {
 	for {
 		select {
 		case msg := <-client.chrq:
@@ -78,6 +78,14 @@ func (s *Service) handleClient(c net.Conn) {
 		case <-client.chdown:
 			return
 		}
+	}
+}
+
+func (s *Service) handleClient(nc net.Conn) {
+	client := goconn(nc)
+	nworker := runtime.NumCPU() * 4
+	for i := 0; i < nworker; i++ {
+		go s.workproc(client)
 	}
 }
 
@@ -108,7 +116,7 @@ func (s *Service) Start() error {
 			time.Sleep(time.Second)
 			continue
 		}
-		go s.handleClient(nc)
+		s.handleClient(nc)
 	}
 }
 

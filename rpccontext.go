@@ -14,10 +14,11 @@ type rpccontext struct {
 	state  int32 // 0: undone, 1: done
 	expire int64
 	hidx   int
-	mgr    *contextManager
+	code   int
+	fn     Callback
 	method string
 	id     uint64
-	fn     Callback
+	result []byte
 }
 
 func (c *rpccontext) done() bool {
@@ -25,6 +26,7 @@ func (c *rpccontext) done() bool {
 }
 
 type contextManager struct {
+	c      *Client
 	mu     sync.Mutex
 	ctxs   map[uint64]*rpccontext // reqid => request
 	wait   []*rpccontext
@@ -76,7 +78,6 @@ func (m *contextManager) resetTimer() {
 
 func (m *contextManager) add(reqid uint64, method string, fn Callback, timeout time.Duration) *rpccontext {
 	ctx := &rpccontext{
-		mgr:    m,
 		method: method,
 		id:     reqid,
 		fn:     fn,
@@ -116,8 +117,9 @@ func (m *contextManager) cleanExpired() {
 				break
 			}
 			if ctx.done() {
-				// HACK: fn blocking
-				ctx.fn(ctx.method, CodeTimeout, nil)
+				ctx.code = CodeTimeout
+				ctx.result = nil
+				m.c.chret <- ctx
 			}
 		}
 		m.mu.Lock()

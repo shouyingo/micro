@@ -3,6 +3,7 @@ package micro
 import (
 	"fmt"
 	"net"
+	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -21,6 +22,7 @@ type serviceEntry struct {
 
 type Client struct {
 	deps   map[string]*conngroup // service => group
+	chret  chan *rpccontext
 	mgr    *contextManager
 	nreqid uint64
 
@@ -29,6 +31,17 @@ type Client struct {
 
 	registry *consul.Client
 	OnError  ErrFunc
+}
+
+func (c *Client) workproc(chsignal chan struct{}) {
+	for {
+		select {
+		case ctx := <-c.chret:
+			ctx.fn(ctx.method, ctx.code, ctx.result)
+		case <-chsignal:
+			return
+		}
+	}
 }
 
 func (c *Client) handleServer(svc *serviceEntry) {
@@ -46,6 +59,11 @@ func (c *Client) handleServer(svc *serviceEntry) {
 			continue
 		}
 		server := goconn(nc)
+		chsignal := make(chan struct{})
+		nworker := runtime.NumCPU() * 4
+		for i := 0; i < nworker; i++ {
+			go c.workproc(chsignal)
+		}
 		g.add(server)
 	mainloop:
 		for {
@@ -57,13 +75,16 @@ func (c *Client) handleServer(svc *serviceEntry) {
 				}
 				ctx := c.mgr.remove(resp.Id)
 				if ctx != nil && ctx.done() {
-					ctx.fn(ctx.method, int(resp.Code), resp.Result)
+					ctx.code = int(resp.Code)
+					ctx.result = resp.Result
+					c.chret <- ctx
 				}
 			case <-server.chdown:
 				break mainloop
 			}
 		}
 		g.remove(server)
+		close(chsignal)
 	}
 }
 
@@ -140,8 +161,10 @@ func NewClient(r *consul.Client, depends []string) *Client {
 	for _, dep := range depends {
 		deps[dep] = &conngroup{}
 	}
+
 	c := &Client{
-		deps: deps,
+		deps:  deps,
+		chret: make(chan *rpccontext, clientRetCap),
 		mgr: &contextManager{
 			ctxs:  make(map[uint64]*rpccontext),
 			timer: time.NewTimer(infinite),
@@ -149,6 +172,8 @@ func NewClient(r *consul.Client, depends []string) *Client {
 		svcs:     make(map[string]*serviceEntry),
 		registry: r,
 	}
+	c.mgr.c = c
+
 	for svc := range c.deps {
 		go c.watchService(svc)
 	}
