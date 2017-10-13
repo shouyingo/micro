@@ -34,19 +34,19 @@ func (c *conn) shutdown(err error) {
 
 func (c *conn) readloop() {
 	for {
-		msg, err := c.read()
+		pack, err := c.read()
 		if err != nil {
 			c.shutdown(err)
 			return
 		}
 		if isDebug {
-			log.Printf("session(%d) read %s", c.id, msg)
+			log.Printf("session(%d) read %+v", c.id, pack)
 		}
-		if msg == nil {
+		if pack == nil {
 			continue
 		}
 		select {
-		case c.chrq <- msg:
+		case c.chrq <- pack:
 		case <-c.chdown:
 			return
 		}
@@ -56,14 +56,14 @@ func (c *conn) readloop() {
 func (c *conn) writeloop() {
 	for {
 		select {
-		case msg := <-c.chwq:
-			err := c.write(msg)
+		case pack := <-c.chwq:
+			err := c.write(pack)
 			if err != nil {
 				c.shutdown(err)
 				return
 			}
 			if isDebug {
-				log.Printf("session(%d) write %s", c.id, msg)
+				log.Printf("session(%d) write %+v", c.id, pack)
 			}
 		case <-c.chdown:
 			return
@@ -78,7 +78,7 @@ func (c *conn) read() (*Packet, error) {
 		return nil, err
 	}
 	n := binary.LittleEndian.Uint32(nbuf[:])
-	if n < 4 || n >= maxPacketSize {
+	if n >= maxPacketSize {
 		return nil, fmt.Errorf("invalid packet size: %d", n)
 	}
 	if isDebug {
@@ -91,7 +91,7 @@ func (c *conn) read() (*Packet, error) {
 	}
 	pack := &Packet{}
 	r := DecodePacket(pack, buf)
-	if r == 0 || r == len(buf) {
+	if r != len(buf) {
 		return nil, fmt.Errorf("invalid packet: %d", r)
 	}
 	return pack, nil

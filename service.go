@@ -2,6 +2,7 @@ package micro
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"runtime"
 	"strconv"
@@ -76,6 +77,9 @@ func (s *Service) workproc(client *conn) {
 				})
 			}
 		case <-client.chdown:
+			if isDebug {
+				log.Printf("client(%d) close: %s", client.id, client.err)
+			}
 			return
 		}
 	}

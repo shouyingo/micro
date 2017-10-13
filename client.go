@@ -2,6 +2,7 @@ package micro
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"runtime"
 	"strconv"
@@ -78,6 +79,9 @@ func (c *Client) handleServer(svc *serviceEntry) {
 					c.chret <- ctx
 				}
 			case <-server.chdown:
+				if isDebug {
+					log.Printf("server(%d) close: %s", server.id, server.err)
+				}
 				break mainloop
 			}
 		}
