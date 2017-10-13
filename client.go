@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/shouyingo/consul"
-	"github.com/shouyingo/micro/microproto"
 )
 
 type serviceEntry struct {
@@ -68,15 +67,14 @@ func (c *Client) handleServer(svc *serviceEntry) {
 	mainloop:
 		for {
 			select {
-			case msg := <-server.chrq:
-				resp, ok := msg.(*microproto.Response)
-				if !ok {
+			case pack := <-server.chrq:
+				if pack.Flag&FlagReply == 0 {
 					continue
 				}
-				ctx := c.mgr.remove(resp.Id)
+				ctx := c.mgr.remove(pack.Id)
 				if ctx != nil && ctx.done() {
-					ctx.code = int(resp.Code)
-					ctx.result = resp.Result
+					ctx.code = int(pack.Code)
+					ctx.result = pack.Body
 					c.chret <- ctx
 				}
 			case <-server.chdown:
@@ -144,10 +142,10 @@ func (c *Client) Call(service string, method string, params []byte, fn Callback)
 		return nil
 	}
 
-	ok := mc.send(&microproto.Request{
-		Method: method,
-		Id:     reqid,
-		Params: params,
+	ok := mc.send(&Packet{
+		Id:   reqid,
+		Name: method,
+		Body: params,
 	})
 	if ok || !ctx.done() {
 		return nil

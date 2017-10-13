@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/shouyingo/consul"
-	"github.com/shouyingo/micro/microproto"
 )
 
 type Service struct {
@@ -54,25 +53,26 @@ retry:
 func (s *Service) workproc(client *conn) {
 	for {
 		select {
-		case msg := <-client.chrq:
-			req, ok := msg.(*microproto.Request)
-			if !ok {
+		case pack := <-client.chrq:
+			if pack.Flag&FlagReply != 0 {
 				continue
 			}
-			fn := s.handlers[req.Method]
+			fn := s.handlers[pack.Name]
 			if fn != nil {
-				code, result := fn(req.Method[len(s.name)+1:], req.GetParams())
-				client.send(&microproto.Response{
-					Id:     req.Id,
-					Code:   int32(code),
-					Result: result,
-					Ext:    req.Ext,
+				code, result := fn(pack.Name[len(s.name)+1:], pack.Body)
+				client.send(&Packet{
+					Flag: FlagReply,
+					Id:   pack.Id,
+					Code: int32(code),
+					Body: result,
+					Ext:  pack.Ext,
 				})
 			} else {
-				client.send(&microproto.Response{
-					Id:   req.Id,
+				client.send(&Packet{
+					Flag: FlagReply,
+					Id:   pack.Id,
 					Code: CodeFallback,
-					Ext:  req.Ext,
+					Ext:  pack.Ext,
 				})
 			}
 		case <-client.chdown:

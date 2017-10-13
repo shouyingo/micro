@@ -7,14 +7,6 @@ import (
 	"log"
 	"net"
 	"sync/atomic"
-
-	"github.com/golang/protobuf/proto"
-	"github.com/shouyingo/micro/microproto"
-)
-
-const (
-	typeRequest  = 1
-	typeResponse = 2
 )
 
 var (
@@ -25,8 +17,8 @@ type conn struct {
 	state  int32 // 0: alive, 1: down
 	id     uint64
 	c      net.Conn
-	chrq   chan proto.Message
-	chwq   chan proto.Message
+	chrq   chan *Packet
+	chwq   chan *Packet
 	chdown chan struct{}
 	err    error
 }
@@ -79,7 +71,7 @@ func (c *conn) writeloop() {
 	}
 }
 
-func (c *conn) read() (proto.Message, error) {
+func (c *conn) read() (*Packet, error) {
 	var nbuf [4]byte
 	_, err := io.ReadFull(c.c, nbuf[:])
 	if err != nil {
@@ -97,49 +89,23 @@ func (c *conn) read() (proto.Message, error) {
 	if err != nil {
 		return nil, err
 	}
-	var msg proto.Message
-	typ := binary.LittleEndian.Uint32(buf[:4])
-	switch typ {
-	case typeRequest:
-		msg = &microproto.Request{}
-	case typeResponse:
-		msg = &microproto.Response{}
-	default:
-		return nil, fmt.Errorf("unsupported type: %d", typ)
+	pack := &Packet{}
+	r := DecodePacket(pack, buf)
+	if r == 0 || r == len(buf) {
+		return nil, fmt.Errorf("invalid packet: %d", r)
 	}
-	err = proto.Unmarshal(buf[4:], msg)
-	if err != nil {
-		return nil, nil
-	}
-	return msg, nil
+	return pack, nil
 }
 
-func (c *conn) write(msg proto.Message) error {
-	var header [8]byte
-	switch msg.(type) {
-	case *microproto.Request:
-		binary.LittleEndian.PutUint32(header[4:8], typeRequest)
-	case *microproto.Response:
-		binary.LittleEndian.PutUint32(header[4:8], typeResponse)
-	default:
-		return fmt.Errorf("unsupported type: %T", msg)
-	}
-
-	buf := proto.NewBuffer(header[:])
-	err := buf.Marshal(msg)
-	if err != nil {
-		return err
-	}
-	data := buf.Bytes()
-	binary.LittleEndian.PutUint32(data[0:4], uint32(len(data)-4))
-	_, err = c.c.Write(data)
+func (c *conn) write(pack *Packet) error {
+	_, err := c.c.Write(EncodePacket(nil, pack))
 	return err
 }
 
-func (c *conn) send(msg proto.Message) bool {
+func (c *conn) send(pack *Packet) bool {
 	if atomic.LoadInt32(&c.state) == 0 {
 		select {
-		case c.chwq <- msg:
+		case c.chwq <- pack:
 			return true
 		case <-c.chdown:
 		}
@@ -151,8 +117,8 @@ func goconn(nc net.Conn) *conn {
 	c := &conn{
 		id:     atomic.AddUint64(&nconnid, 1),
 		c:      nc,
-		chrq:   make(chan proto.Message, connReadCap),
-		chwq:   make(chan proto.Message, connWriteCap),
+		chrq:   make(chan *Packet, connReadCap),
+		chwq:   make(chan *Packet, connWriteCap),
 		chdown: make(chan struct{}),
 	}
 	go c.readloop()
