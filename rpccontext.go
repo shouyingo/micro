@@ -2,13 +2,12 @@ package micro
 
 import (
 	"container/heap"
-	"math"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
-const infinite = time.Duration(math.MaxInt64)
+const timerIdle = 30 * time.Minute
 
 type rpccontext struct {
 	state  int32 // 0: undone, 1: done
@@ -72,7 +71,7 @@ func (m *contextManager) resetTimer() {
 		}
 	} else {
 		m.wakeAt = 0
-		m.timer.Reset(infinite)
+		m.timer.Reset(timerIdle)
 	}
 }
 

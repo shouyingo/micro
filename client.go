@@ -169,7 +169,7 @@ func NewClient(r *consul.Client, depends []string) *Client {
 		chret: make(chan *rpccontext, clientRetCap),
 		mgr: &contextManager{
 			ctxs:  make(map[uint64]*rpccontext),
-			timer: time.NewTimer(infinite),
+			timer: time.NewTimer(timerIdle),
 		},
 		svcs:     make(map[string]*serviceEntry),
 		registry: r,

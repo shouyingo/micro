@@ -8,6 +8,6 @@ const (
 
 type ErrFunc func(action string, err error)
 
-type Handler func(method string, params []byte) (int, []byte)
+type HandleFunc func(c *Context)
 
 type Callback func(method string, code int, result []byte)

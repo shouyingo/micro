@@ -14,9 +14,8 @@ import (
 
 type Service struct {
 	state    int32 // 0: unstart, 1: started
-	name     string
+	fn       HandleFunc
 	registry *consul.Client
-	handlers map[string]Handler
 	OnError  ErrFunc
 	svc      consul.AgentService
 }
@@ -58,24 +57,14 @@ func (s *Service) workproc(client *conn) {
 			if pack.Flag&FlagReply != 0 {
 				continue
 			}
-			fn := s.handlers[pack.Name]
-			if fn != nil {
-				code, result := fn(pack.Name[len(s.name)+1:], pack.Body)
-				client.send(&Packet{
-					Flag: FlagReply,
-					Id:   pack.Id,
-					Code: int32(code),
-					Body: result,
-					Ext:  pack.Ext,
-				})
-			} else {
-				client.send(&Packet{
-					Flag: FlagReply,
-					Id:   pack.Id,
-					Code: CodeFallback,
-					Ext:  pack.Ext,
-				})
-			}
+			s.fn(&Context{
+				id:     pack.Id,
+				name:   pack.Name,
+				params: pack.Body,
+				ext:    pack.Ext,
+				c:      client,
+			})
+
 		case <-client.chdown:
 			if isDebug {
 				log.Printf("client(%d) close: %s", client.id, client.err)
@@ -124,24 +113,12 @@ func (s *Service) Start() error {
 	}
 }
 
-var stubhanlder = map[string]Handler{}
-
-func NewService(r *consul.Client, name string, addr string, handlers map[string]Handler) *Service {
-	if len(handlers) == 0 {
-		handlers = stubhanlder
-	} else {
-		h := make(map[string]Handler, len(handlers))
-		for method, fn := range handlers {
-			h[name+"."+method] = fn
-		}
-		handlers = h
-	}
+func NewService(r *consul.Client, name string, addr string, fn HandleFunc) *Service {
 	h, p, _ := net.SplitHostPort(addr)
 	port, _ := strconv.Atoi(p)
 	return &Service{
-		name:     name,
 		registry: r,
-		handlers: handlers,
+		fn:       fn,
 		svc: consul.AgentService{
 			Name:    name,
 			Address: h,
