@@ -57,7 +57,7 @@ func (c *conn) writeloop() {
 	for {
 		select {
 		case pack := <-c.chwq:
-			err := c.write(pack)
+			_, err := c.c.Write(EncodePacket(nil, pack))
 			if err != nil {
 				c.shutdown(err)
 				return
@@ -95,11 +95,6 @@ func (c *conn) read() (*Packet, error) {
 		return nil, fmt.Errorf("invalid packet: %d", r)
 	}
 	return pack, nil
-}
-
-func (c *conn) write(pack *Packet) error {
-	_, err := c.c.Write(EncodePacket(nil, pack))
-	return err
 }
 
 func (c *conn) send(pack *Packet) bool {

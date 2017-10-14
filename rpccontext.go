@@ -116,9 +116,7 @@ func (m *contextManager) cleanExpired() {
 				break
 			}
 			if ctx.done() {
-				ctx.code = CodeTimeout
-				ctx.result = nil
-				m.c.chret <- ctx
+				ctx.fn(ctx.method, CodeTimeout, nil)
 			}
 		}
 		m.mu.Lock()
