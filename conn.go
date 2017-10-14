@@ -91,7 +91,7 @@ func (c *conn) read() (*Packet, error) {
 	}
 	pack := &Packet{}
 	r := DecodePacket(pack, buf)
-	if r != len(buf) {
+	if r == 0 || r != len(buf) {
 		return nil, fmt.Errorf("invalid packet: %d", r)
 	}
 	return pack, nil
