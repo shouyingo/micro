@@ -13,11 +13,9 @@ type rpccontext struct {
 	state  int32 // 0: undone, 1: done
 	expire int64
 	hidx   int
-	code   int
 	fn     Callback
 	method string
 	id     uint64
-	result []byte
 }
 
 func (c *rpccontext) done() bool {

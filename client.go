@@ -56,7 +56,7 @@ func (c *Client) handleServer(svc *serviceEntry) {
 				}
 				ctx := c.mgr.remove(pack.Id)
 				if ctx != nil && ctx.done() {
-					ctx.fn(ctx.method, ctx.code, ctx.result)
+					ctx.fn(ctx.method, int(pack.Code), pack.Body)
 				}
 			case <-server.chdown:
 				if isDebug {
