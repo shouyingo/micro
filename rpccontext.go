@@ -13,12 +13,16 @@ type rpccontext struct {
 	state  int32 // 0: undone, 1: done
 	expire int64
 	hidx   int
+	pack   *Packet
 	fn     Callback
 	method string
 	id     uint64
 }
 
 func (c *rpccontext) done() bool {
+	if pack := c.pack; pack != nil {
+		atomic.StoreInt32(&pack.done, 1)
+	}
 	return atomic.CompareAndSwapInt32(&c.state, 0, 1)
 }
 

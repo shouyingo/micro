@@ -9,6 +9,7 @@ import (
 )
 
 func printwait(m *contextManager) {
+	log.Println("====")
 	for _, c := range m.wait {
 		log.Println("method", c.method, "expire", c.expire, "hidex", c.hidx)
 	}
@@ -18,7 +19,7 @@ func printwait(m *contextManager) {
 func TestContextManager(t *testing.T) {
 	m := &contextManager{
 		ctxs:  make(map[uint64]*rpccontext),
-		timer: time.NewTimer(infinite),
+		timer: time.NewTimer(timerIdle),
 	}
 	go m.cleanExpired()
 	wg := sync.WaitGroup{}

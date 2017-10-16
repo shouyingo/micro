@@ -124,12 +124,12 @@ func (c *Client) Call(service string, method string, params []byte, fn Callback)
 		}
 		return nil
 	}
-
-	ok := mc.send(&Packet{
+	ctx.pack = &Packet{
 		Id:   reqid,
 		Name: method,
 		Body: params,
-	})
+	}
+	ok := mc.send(ctx.pack)
 	if ok || !ctx.done() {
 		return nil
 	}

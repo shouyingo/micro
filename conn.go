@@ -57,6 +57,9 @@ func (c *conn) writeloop() {
 	for {
 		select {
 		case pack := <-c.chwq:
+			if atomic.LoadInt32(&pack.done) != 0 {
+				continue
+			}
 			_, err := c.c.Write(EncodePacket(nil, pack))
 			if err != nil {
 				c.shutdown(err)

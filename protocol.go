@@ -31,6 +31,7 @@ const (
 )
 
 type Packet struct {
+	done int32
 	Flag uint32
 	Code int32
 	Id   uint64
