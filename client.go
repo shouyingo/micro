@@ -14,9 +14,22 @@ import (
 
 type serviceEntry struct {
 	state int32 // 0: alive, 1: down
+	mu    sync.Mutex
+	c     *conn
 	id    string
 	name  string
 	addr  string
+}
+
+func (s *serviceEntry) stop() {
+	s.mu.Lock()
+	atomic.StoreInt32(&s.state, 1)
+	c := s.c
+	s.c = nil
+	s.mu.Unlock()
+	if c != nil {
+		c.shutdown(nil)
+	}
 }
 
 type Client struct {
@@ -46,6 +59,16 @@ func (c *Client) handleServer(svc *serviceEntry) {
 			continue
 		}
 		server := goconn(nc)
+
+		svc.mu.Lock()
+		if svc.state != 0 {
+			svc.mu.Unlock()
+			server.shutdown(nil)
+			break
+		}
+		svc.c = server
+		svc.mu.Unlock()
+
 		g.add(server)
 	mainloop:
 		for {
@@ -82,17 +105,17 @@ func (d *Client) onWatch(action int, id string, svc *consul.CatalogService) {
 		d.svcs[id] = s
 		d.svcmu.Unlock()
 		if old != nil {
-			atomic.StoreInt32(&old.state, 1)
+			old.stop()
 		}
 		go d.handleServer(s)
 	case 2:
 		d.svcmu.Lock()
 		s := d.svcs[id]
 		if s != nil {
-			atomic.StoreInt32(&s.state, 1)
 			delete(d.svcs, id)
 		}
 		d.svcmu.Unlock()
+		s.stop()
 	}
 }
 
