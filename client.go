@@ -115,7 +115,9 @@ func (d *Client) onWatch(action int, id string, svc *consul.CatalogService) {
 			delete(d.svcs, id)
 		}
 		d.svcmu.Unlock()
-		s.stop()
+		if s != nil {
+			s.stop()
+		}
 	}
 }
 
