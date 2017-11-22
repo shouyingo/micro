@@ -15,7 +15,7 @@ type Service struct {
 	state    int32 // 0: unstart, 1: started
 	fn       HandleFunc
 	registry *consul.Client
-	OnError  ErrFunc
+	logger   Logger
 	svc      consul.AgentService
 }
 
@@ -32,18 +32,14 @@ func (s *Service) keepalive(id string) {
 	for {
 		err := s.registry.KeepAlive(id, serviceTTL, nil)
 		if err != nil {
-			if eh := s.OnError; eh != nil {
-				eh("keepalive", err)
-			}
+			s.logger.Printf("registry keepalive service(%s) failed: %s", id, err)
 			break
 		}
 	}
 retry:
 	err := s.register()
 	if err != nil {
-		if eh := s.OnError; eh != nil {
-			eh("register", err)
-		}
+		s.logger.Printf("registry register service(%s) failed: %s", s.svc.Name, err)
 		time.Sleep(time.Second)
 		goto retry
 	}
@@ -73,6 +69,14 @@ func (s *Service) handleClient(nc net.Conn) {
 	}
 }
 
+func (s *Service) SetLogger(logger Logger) {
+	if logger != nil {
+		s.logger = logger
+	} else {
+		s.logger = anoplogger
+	}
+}
+
 func (s *Service) Start() error {
 	if !atomic.CompareAndSwapInt32(&s.state, 0, 1) {
 		return fmt.Errorf("error state: %d", s.state)
@@ -94,9 +98,7 @@ func (s *Service) Start() error {
 	for {
 		nc, err := l.Accept()
 		if err != nil {
-			if eh := s.OnError; eh != nil {
-				eh("accept", err)
-			}
+			s.logger.Printf("server(%s) accept failed: %s", s.svc.Name, err)
 			time.Sleep(time.Second)
 			continue
 		}
@@ -110,6 +112,7 @@ func NewService(r *consul.Client, name string, addr string, fn HandleFunc) *Serv
 	return &Service{
 		registry: r,
 		fn:       fn,
+		logger:   anoplogger,
 		svc: consul.AgentService{
 			Name:    name,
 			Address: h,

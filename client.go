@@ -41,7 +41,7 @@ type Client struct {
 	svcs  map[string]*serviceEntry // service-id => entry
 
 	registry *consul.Client
-	OnError  ErrFunc
+	logger   Logger
 }
 
 func (c *Client) handleServer(svc *serviceEntry) {
@@ -52,9 +52,7 @@ func (c *Client) handleServer(svc *serviceEntry) {
 	for atomic.LoadInt32(&svc.state) == 0 {
 		nc, err := net.Dial("tcp", svc.addr)
 		if err != nil {
-			if eh := c.OnError; eh != nil {
-				eh("dial", err)
-			}
+			c.logger.Printf("client dial service(%s) failed: %s", svc.name, err)
 			time.Sleep(time.Second)
 			continue
 		}
@@ -125,11 +123,17 @@ func (c *Client) watchService(service string) {
 	for {
 		err := c.registry.WatchCatalogService(service, "", c.onWatch)
 		if err != nil {
-			if eh := c.OnError; eh != nil {
-				eh("watch", err)
-			}
+			c.logger.Printf("registry watch service(%s) failed: %s", service, err)
 		}
 		time.Sleep(time.Second)
+	}
+}
+
+func (c *Client) SetLogger(logger Logger) {
+	if logger != nil {
+		c.logger = logger
+	} else {
+		c.logger = anoplogger
 	}
 }
 
@@ -176,6 +180,7 @@ func NewClient(r *consul.Client, depends []string) *Client {
 		},
 		svcs:     make(map[string]*serviceEntry),
 		registry: r,
+		logger:   anoplogger,
 	}
 	c.mgr.c = c
 
