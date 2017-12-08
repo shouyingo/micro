@@ -16,9 +16,6 @@ func ondone(method string, code int, result []byte) {
 
 func main() {
 	c := micro.NewClient(consul.New("http://127.0.0.1:8500", ""), []string{"demosvc"})
-	c.OnError = func(action string, err error) {
-		log.Println("err", action, err)
-	}
 	for {
 		err := c.Call("demosvc", "hello", strconv.AppendInt(nil, time.Now().UnixNano(), 10), ondone)
 		if err != nil {

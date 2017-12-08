@@ -14,8 +14,5 @@ func oncall(c *micro.Context) {
 
 func main() {
 	s := micro.NewService(consul.New("http://127.0.0.1:8500", ""), "demosvc", "127.0.0.1", oncall)
-	s.OnError = func(action string, err error) {
-		log.Println("err", action, err)
-	}
 	s.Start()
 }

@@ -21,7 +21,7 @@ type serviceEntry struct {
 	addr  string
 }
 
-func (s *serviceEntry) stop() {
+func (s *serviceEntry) offline() {
 	s.mu.Lock()
 	atomic.StoreInt32(&s.state, 1)
 	c := s.c
@@ -36,9 +36,6 @@ type Client struct {
 	deps   map[string]*conngroup // service => group
 	mgr    *contextManager
 	nreqid uint64
-
-	svcmu sync.RWMutex
-	svcs  map[string]*serviceEntry // service-id => entry
 
 	registry *consul.Client
 	logger   Logger
@@ -87,41 +84,35 @@ func (c *Client) handleServer(svc *serviceEntry) {
 			}
 		}
 		g.remove(server)
-	}
-}
-
-func (d *Client) onWatch(action int, id string, svc *consul.CatalogService) {
-	switch action {
-	case 0:
-		s := &serviceEntry{
-			id:   id,
-			name: svc.ServiceName,
-			addr: net.JoinHostPort(svc.ServiceAddress, strconv.Itoa(svc.ServicePort)),
-		}
-		d.svcmu.Lock()
-		old := d.svcs[id]
-		d.svcs[id] = s
-		d.svcmu.Unlock()
-		if old != nil {
-			old.stop()
-		}
-		go d.handleServer(s)
-	case 2:
-		d.svcmu.Lock()
-		s := d.svcs[id]
-		if s != nil {
-			delete(d.svcs, id)
-		}
-		d.svcmu.Unlock()
-		if s != nil {
-			s.stop()
-		}
+		time.Sleep(time.Second)
 	}
 }
 
 func (c *Client) watchService(service string) {
+	entries := map[string]*serviceEntry{}
 	for {
-		err := c.registry.WatchCatalogService(service, "", c.onWatch)
+		err := c.registry.WatchCatalogService(service, "", func(action int, id string, svc *consul.CatalogService) {
+			switch action {
+			case consul.WatchAdd, consul.WatchChange:
+				e := entries[id]
+				if e != nil {
+					e.offline()
+				}
+				s := &serviceEntry{
+					id:   id,
+					name: svc.ServiceName,
+					addr: net.JoinHostPort(svc.ServiceAddress, strconv.Itoa(svc.ServicePort)),
+				}
+				entries[id] = e
+				go c.handleServer(s)
+			case consul.WatchRemove:
+				e := entries[id]
+				if e != nil {
+					delete(entries, id)
+					e.offline()
+				}
+			}
+		})
 		if err != nil {
 			c.logger.Printf("registry watch service(%s) failed: %s", service, err)
 		}
@@ -178,7 +169,6 @@ func NewClient(r *consul.Client, depends []string) *Client {
 			ctxs:  make(map[uint64]*rpccontext),
 			timer: time.NewTimer(timerIdle),
 		},
-		svcs:     make(map[string]*serviceEntry),
 		registry: r,
 		logger:   anoplogger,
 	}
